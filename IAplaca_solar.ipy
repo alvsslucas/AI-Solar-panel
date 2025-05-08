@@ -1,0 +1,216 @@
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+import PIL
+import os
+import shutil
+from sklearn.model_selection import train_test_split
+from PIL import Image
+
+from tensorflow.keras.applications import VGG16
+from tensorflow.keras import layers, models
+import tensorflow as tf
+from sklearn.utils.class_weight import compute_class_weight
+from sklearn.preprocessing import label_binarize
+
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="tensorflow_io")
+
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+# Diretorio dos datasets
+dir1 = r'C:\Users\lumax\OneDrive\Área de Trabalho\Faculdade\TCC\solar dust\pack1'
+dir2 = r'C:\Users\lumax\OneDrive\Área de Trabalho\Faculdade\TCC\solar dust\pack2'
+classes = ['Limpo', 'Sujo']
+
+# treinamento/teste/validação
+for dir_name in ['./train', './test', './validate']:
+    if not os.path.exists(dir_name):
+        os.mkdir(dir_name)
+
+def process_class(class_name):
+    for subdir in ['/train/', '/test/', '/validate/']:          ## Criar pastas para treino/teste/validação
+        os.makedirs(f'.{subdir}{class_name}', exist_ok=True)
+
+    files1 = os.listdir(os.path.join(dir1, class_name))         ## Listar arquivos do primeiro diretório
+    files2 = os.listdir(os.path.join(dir2, class_name))         ## Listar arquivos do segundo diretório
+    files = [os.path.join(dir1, class_name, f) for f in files1] + [os.path.join(dir2, class_name, f) for f in files2]   ## Combinar os arquivos dos dois diretórios
+
+    train_files, test_validate_files = train_test_split(files, test_size=0.3, random_state=42)             ## Dividir em treino e teste/validação
+    test_files, validate_files = train_test_split(test_validate_files, test_size=(1/3), random_state=42)   ## Dividir teste/validação em teste e validação
+
+    for f in train_files:
+        shutil.copy(f, f'./train/{class_name}/')
+    for f in test_files:
+        shutil.copy(f, f'./test/{class_name}/')
+    for f in validate_files:
+        shutil.copy(f, f'./validate/{class_name}/')
+
+# Processar cada classe
+for class_name in classes:
+    process_class(class_name)
+
+BATCH_SIZE = 48     ## Tamanho do lote
+image_height = 299
+image_width = 299
+
+train_data_generator = ImageDataGenerator(  ## Gerador de dados para o conjunto de treinamento
+    rescale=1./255,                         ## Normalização
+    rotation_range=5,                       ## Rotação aleatória de 5 graus
+    width_shift_range=0.05,                 ## Deslocamento horizontal aleatório de 5%
+    height_shift_range=0.05,                ## Deslocamento vertical aleatório de 5%
+    shear_range=0.05,                       ## Cisalhamento aleatório de 5%
+    zoom_range=0.05,                        ## Zoom aleatório de 5%
+    brightness_range=[0.95, 1.05],          ## Variação de brilho entre 95% e 105%
+    horizontal_flip=False,                  ## Espelhamento horizontal
+    vertical_flip=False,                    ## Espelhamento vertical
+    fill_mode='nearest'                     ## Preenchimento de pixels ausentes
+) 
+
+test_val_data_generator = ImageDataGenerator(rescale=1./255)    ## Gerador de dados para teste e validação
+
+train_generator = train_data_generator.flow_from_directory(     ## Gerar lotes de dados a partir do diretório de treinamento
+    directory="./train",                                        ## Diretório de treinamento
+    color_mode="rgb",                                           ## Modo de cor RGB
+    target_size=(image_height, image_width),                    ## Tamanho da imagem
+    class_mode="categorical",                                   ## Modo de classe categórica
+    batch_size=BATCH_SIZE,                                      ## Tamanho do lote
+    shuffle=True,                                               ## Embaralhar os dados
+    seed=1234                                                   ## Semente para reprodutibilidade
+)
+
+test_generator = test_val_data_generator.flow_from_directory(
+    directory="./test",
+    color_mode="rgb",
+    target_size=(image_height, image_width),
+    class_mode="categorical",
+    batch_size=BATCH_SIZE,
+    shuffle=False,
+    seed=1234
+)
+
+validate_generator = test_val_data_generator.flow_from_directory(
+    directory="./validate",
+    color_mode="rgb",
+    target_size=(image_height, image_width),
+    class_mode="categorical",
+    batch_size=BATCH_SIZE,
+    shuffle=False,
+    seed=1234
+)
+
+dict_class = train_generator.class_indices
+print('Dictionary:', dict_class)
+class_names = list(dict_class.keys())
+print('Class labels:', class_names)
+
+print("Dataset Characteristics of Train Data Set:")
+print("Number of images:", len(train_generator.classes))
+for class_name, class_index in train_generator.class_indices.items():
+    print(f"Number of {class_name} images:", sum(train_generator.classes == class_index))
+
+print("\nDataset Characteristics of Test Data Set:")
+print("Number of images:", len(test_generator.classes))
+for class_name, class_index in test_generator.class_indices.items():
+    print(f"Number of {class_name} images:", sum(test_generator.classes == class_index))
+
+print("\nDataset Characteristics of Validation Data Set:")
+print("Number of images:", len(validate_generator.classes))
+for class_name, class_index in validate_generator.class_indices.items():
+    print(f"Number of {class_name} images:", sum(validate_generator.classes == class_index))
+
+print('Train image data from Data Augmentation 1 *Preprocessing*')
+img, label = next(train_generator)
+
+plt.figure(figsize=[14, 12])
+for i in range(25):
+    plt.subplot(5, 5, i+1)
+    plt.imshow(img[i])
+    plt.axis('off')
+    plt.title(class_names[np.argmax(label[i])])
+plt.show()
+
+base_model = VGG16(weights='imagenet', include_top=False, input_shape=(image_height, image_width, 3))
+base_model.trainable = False
+
+model = models.Sequential()
+model.add(base_model)
+model.add(layers.Flatten())
+model.add(layers.Dense(256, activation='relu'))
+model.add(layers.Dropout(0.5))
+model.add(layers.Dense(len(class_names), activation='softmax'))
+
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+model.summary()
+
+class_weights = compute_class_weight(class_weight="balanced", classes=np.unique(train_generator.classes), y=train_generator.classes)
+class_weights = dict(zip(np.unique(train_generator.classes), class_weights))
+
+epoch = 15
+history = model.fit(train_generator, validation_data=validate_generator, epochs=epoch, class_weight=class_weights)
+
+train_loss = history.history['loss']
+val_loss = history.history['val_loss']
+train_accuracy = history.history['accuracy']
+val_accuracy = history.history['val_accuracy']
+
+plt.figure(figsize=(12, 4))
+plt.subplot(1, 2, 2)
+plt.plot(train_loss, label='Training Loss')
+plt.plot(val_loss, label='Validation Loss')
+plt.title('Training and Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+
+plt.subplot(1, 2, 1)
+plt.plot(train_accuracy, label='Training Accuracy')
+plt.plot(val_accuracy, label='Validation Accuracy')
+plt.title('Training and Validation Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend()
+
+plt.show()
+
+evaluation = model.evaluate(test_generator)
+loss, accuracy = evaluation
+
+print("Evaluation Results:")
+print("Test Loss: {:.4f}".format(loss))
+print("Test Accuracy: {:.2%}".format(accuracy))
+
+true_labels = []
+predictions = []
+
+test_generator.reset()                      ## Reiniciar o gerador de teste  
+for i in range(len(test_generator)):
+    images, labels = next(test_generator)
+    true_labels.extend(labels)
+    predictions_batch = model.predict(images)
+    predictions.extend(predictions_batch)
+
+true_labels = np.concatenate(true_labels)
+predictions = np.concatenate(predictions)
+
+num_samples = 16
+
+test_generator.reset()
+images, true_labels = next(test_generator)
+predictions_batch = model.predict(images)
+predictions = np.argmax(predictions_batch, axis=1)
+true_labels = np.argmax(true_labels, axis=1)
+
+images = (images * 255).astype("uint8")
+
+plt.figure(figsize=(15, 15))
+for i in range(min(num_samples, len(true_labels))):
+    plt.subplot(4, 4, i + 1)
+    plt.imshow(images[i])
+    title_color = 'green' if class_names[true_labels[i]] == class_names[predictions[i]] else 'red'
+    plt.title("Actual: {}\nPredicted: {}".format(class_names[true_labels[i]], class_names[predictions[i]]), color=title_color)
+    plt.axis("off")
+plt.show()
+
+model.save('my_trained_vgg16_model.keras')
