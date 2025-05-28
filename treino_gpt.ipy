@@ -1,0 +1,139 @@
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
+from tensorflow.keras.applications import VGG16
+from tensorflow.keras import layers, models
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from sklearn.utils.class_weight import compute_class_weight
+
+# Parâmetros gerais
+image_height = 224
+image_width = 224
+BATCH_SIZE = 32
+EPOCHS = 15
+
+# 1) Configuração dos ImageDataGenerator
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    rotation_range=5,
+    width_shift_range=0.05,
+    height_shift_range=0.05,
+    shear_range=0.05,
+    zoom_range=0.05,
+    brightness_range=[1.4, 1.5],
+    horizontal_flip=False,
+    vertical_flip=False,
+    fill_mode='nearest'
+)
+test_val_datagen = ImageDataGenerator(rescale=1./255)
+
+# 2) Criação dos generators
+train_generator = train_datagen.flow_from_directory(
+    directory= r"C:\Users\lumax\OneDrive\Área de Trabalho\Faculdade\TCC\solar dust\pack1",
+    target_size=(image_height, image_width),
+    batch_size=BATCH_SIZE,
+    class_mode="categorical",
+    shuffle=True,
+    seed=1234
+)
+
+validate_generator = test_val_datagen.flow_from_directory(
+    directory="./validate",
+    target_size=(image_height, image_width),
+    batch_size=BATCH_SIZE,
+    class_mode="categorical",
+    shuffle=False,
+    seed=1234
+)
+
+test_generator = test_val_datagen.flow_from_directory(
+    directory="./test",
+    target_size=(image_height, image_width),
+    batch_size=BATCH_SIZE,
+    class_mode="categorical",
+    shuffle=False,
+    seed=1234
+)
+
+# 3) Obtenção de class_names e pesos de classe
+dict_class = train_generator.class_indices
+class_names = list(dict_class.keys())
+print("Classes encontradas:", class_names)
+
+class_weights = compute_class_weight(
+    class_weight="balanced",
+    classes=np.unique(train_generator.classes),
+    y=train_generator.classes
+)
+class_weights = dict(enumerate(class_weights))
+print("class_weights:", class_weights)
+
+# 4) Visualização de um batch antes do treino
+print('Visualizando amostras geradas pelo Data Augmentation:')
+images, labels = next(train_generator)  # batch de imagens e rótulos
+n = min(len(images), 9)
+
+plt.figure(figsize=(9, 9))
+for i in range(n):
+    ax = plt.subplot(3, 3, i + 1)
+    img = images[i]
+    # se estiverem em [0,1], reescala para [0–255]
+    if img.max() <= 1.0:
+        img = img * 255.0
+    img = img.astype('uint8')
+    plt.imshow(img)
+    plt.title(class_names[np.argmax(labels[i])])
+    plt.axis('off')
+plt.tight_layout()
+plt.show()
+
+# 5) Definição e compilação do modelo
+base_model = VGG16(weights='imagenet', include_top=False,
+                   input_shape=(image_height, image_width, 3))
+base_model.trainable = False
+
+model = models.Sequential([
+    base_model,
+    layers.Flatten(),
+    layers.Dense(256, activation='relu'),
+    layers.Dropout(0.5),
+    layers.Dense(len(class_names), activation='softmax')
+])
+
+model.compile(optimizer='adam',
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
+model.summary()
+
+# 6) Treinamento
+history = model.fit(
+    train_generator,
+    validation_data=validate_generator,
+    epochs=EPOCHS,
+    class_weight=class_weights
+)
+
+# 7) Avaliação em teste
+test_loss, test_acc = model.evaluate(test_generator)
+print(f"Teste — Loss: {test_loss:.4f}, Acurácia: {test_acc:.4f}")
+
+# 8) Previsões e plot em teste
+preds = model.predict(test_generator)
+true_labels = test_generator.classes
+num_samples = min(16, len(true_labels))
+images_test = test_generator[0][0]  # primeiro batch de teste
+
+plt.figure(figsize=(15, 15))
+for i in range(num_samples):
+    plt.subplot(4, 4, i + 1)
+    plt.imshow((images_test[i] * 255).astype("uint8"))
+    y_true = class_names[true_labels[i]]
+    y_pred = class_names[np.argmax(preds[i])]
+    color = 'green' if y_true == y_pred else 'red'
+    plt.title(f"Real: {y_true}\nPredito: {y_pred}", color=color)
+    plt.axis("off")
+plt.show()
+
+# 9) Salvando o modelo
+model.save('modelotucadas.keras')

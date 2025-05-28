@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""
+print_single_image.py
+
+Script independente para exibir uma única imagem em tela usando Matplotlib.
+
+Uso:
+    python print_single_image.py --image-path /caminho/para/imagem.jpg
+"""
+import argparse
+from PIL import Image
+import matplotlib.pyplot as plt
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="Exibe uma única imagem especificada pelo caminho"
+    )
+    parser.add_argument(
+        '--image-path', '-i', required=True,
+        help='Caminho para o arquivo de imagem a ser exibido'
+    )
+    return parser.parse_args()
+
+
+def show_image(image_path: str):
+    """
+    Abre e exibe a imagem a partir de um caminho de arquivo.
+    """
+    # Carrega imagem com PIL
+    img = Image.open(image_path)
+    # Exibe com Matplotlib
+    plt.figure(figsize=(6, 6))
+    plt.imshow(img)
+    plt.axis('off')
+    plt.title(f"Exibindo: {image_path}")
+    plt.show()
+
+
+def main():
+    args = parse_arguments()
+    show_image(args.image_path)
+
+
+if __name__ == '__main__':
+    main()

@@ -6,9 +6,9 @@ from tensorflow.keras.preprocessing.image import load_img, img_to_array
 from tensorflow.keras.applications.vgg16 import preprocess_input
 
 # Caminhos
-MODEL_PATH = r"C:/TCC-CODE/my_trained_vgg16_model.keras"
+MODEL_PATH = r"C:/TCC-CODE/git\AI-Solar-panel/modelotucadas.keras"
 IMAGE_FOLDER = r"C:/Users/lumax/OneDrive/Área de Trabalho/Faculdade/TCC/solar dust/pack1/Sujo"
-IMG_SIZE = (299, 299)
+IMG_SIZE = (224, 224)
 
 # Carregar modelo
 model = load_model(MODEL_PATH)
